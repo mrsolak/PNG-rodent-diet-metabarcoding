@@ -1,0 +1,14 @@
+#!/bin/bash
+#PBS -N dada_novo2_18S
+#PBS -l select=4:ncpus=12:mem=64gb:scratch_local=5000gb
+#PBS -l walltime=60:00:00
+#PBS -m n
+
+#load modules
+module load r-dada2
+
+#go to directory define file names
+Rscript --vanilla  /storage/praha1/home/solakh/scripts/rscripts/dada2_PNG_18S_novo2.R
+
+#clean scratch
+trap 'clean_scratch' TERM EXIT

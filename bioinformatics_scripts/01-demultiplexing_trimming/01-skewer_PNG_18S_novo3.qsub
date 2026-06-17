@@ -1,0 +1,36 @@
+#!/bin/bash
+#PBS -N skewer_demultiplex_novo_diet_3
+#PBS -l select=4:ncpus=20:mem=16gb:scratch_local=50gb
+#PBS -l walltime=01:45:00
+#PBS -m n
+
+# [1] SKEWER - DEMULTIPLEXING
+# Define the fasta file that contains primers
+ADAPT_PATH=$(echo /storage/praha1/home/solakh/data/papuang/novogene/primers/primers_18S.fasta)
+# Define the matrix file that contains primer match matrix
+MATRIX_PATH=$(echo /storage/praha1/home/solakh/data/papuang/novogene/primers/matrix_18S.txt)
+
+# Go to raw data directory
+cd /storage/praha1/home/solakh/data/papuang/novogene/02.rawmerged.diet
+
+# Define the samples (filter by the sequence run label)
+SAMPLES=$(ls -1 | grep "MKDL240008184-1A_22C2KLLT4" | grep "_[12].fq.gz" | sed -r 's/_[12]\.fq\.gz//' | sort | uniq)
+
+# Create directory for demultiplexed samples
+mkdir -p ../demultiplexed.18S.3
+
+# Demultiplexing the data
+for i in $SAMPLES; do 
+    /storage/praha1/home/solakh/softwares/skewer/skewer-0.2.2-linux-x86_64 \
+    -x $ADAPT_PATH -M $MATRIX_PATH -b -m head -k 35 -d 0 -t 8 \
+    "$i"_1.fq.gz "$i"_2.fq.gz -o ../demultiplexed.18S.3/"$i"
+done >> ./log
+
+# Go to the demultiplexed folder
+cd /storage/praha1/home/solakh/data/papuang/novogene/demultiplexed.18S.3
+
+# Unzip the demultiplexed .gz files
+gzip *.fastq
+
+# Clean scratch after the end
+trap 'clean_scratch' TERM EXIT

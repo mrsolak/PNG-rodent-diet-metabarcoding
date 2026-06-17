@@ -1,0 +1,46 @@
+#!/bin/bash
+#PBS -N CRABS
+#PBS -l select=1:ncpus=2:mem=64gb:scratch_local=10gb
+#PBS -l walltime=24:00:00
+#PBS -m n
+ 
+#clean scratch after the end
+trap 'clean_scratch' TERM EXIT
+module add conda-modules-py37
+
+#/storage/praha1/home/solakh/.conda/envs/CRABS
+rm /storage/praha1/home/solakh/data/CRABS_data/*
+cd /storage/praha1/home/solakh/data/CRABS_data
+
+#source /storage/brno2/home/kreising/.bashrc
+#conda init
+conda activate /storage/praha1/home/solakh/.conda/envs/CRABS/
+crabs db_download --source ncbi --database nucleotide --query '18S[All Fields] OR SSU[All Fields] AND ("1"[SLEN] : "50000"[SLEN])' --output 18S_ncbi_1_50000.fasta --keep_original yes --email solakh@natur.cuni.cz --batchsize 5000
+
+
+#OTHER STEPS -DONE MANUALLY
+#crabs db_download --source taxonomy
+#crabs db_import --input 18S_ncbi_1_50000.fasta --output output_species.fasta --seq_header species --delim '_'
+#crabs db_import --input 18S_ncbi_1_50000.fasta --output output_accession.fasta --seq_header accession --delim '_'
+
+#crabs db_merge --output merged_accession.fasta --uniq yes --input output_accession.fasta
+
+# In silico PCR..
+#crabs insilico_pcr --input merged_accession.fasta --output ins_silico.fasta --fwd GATYTGTCTGGTTVATTCCG --rev CATCACAGACCTGTTATYGC --error 4.5
+
+
+#Taxonomy
+#crabs assign_tax --input ins_silico.fasta --output ins_silico_tax.tsv --acc2tax nucl_gb.accession2taxid --taxid nodes.dmp --name names.dmp
+
+#Deraplicate
+#crabs dereplicate --input ins_silico_tax.tsv --output ins_silico_tax_unq.tsv --method uniq_species
+
+#clean
+#nans - 2 max. two ranks unassigned (species+genus)
+#crabs seq_cleanup --input ins_silico_tax_unq.tsv --output ins_silico_tax_unq_cln.tsv --minlen 80 --maxlen 500 --maxns 0 --enviro yes --species no --nans 2
+
+
+#formating
+#crabs tax_format --input ins_silico_tax_unq_cln.tsv --output REF_qiime.fasta --format qiif #qiime
+#crabs tax_format --input ins_silico_tax_unq_cln.tsv --output REF_dada.fasta --format dads #dada2
+

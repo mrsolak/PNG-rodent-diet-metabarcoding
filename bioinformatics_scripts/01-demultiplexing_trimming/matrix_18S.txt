@@ -1,0 +1,8 @@
+#	%	F_trus1	F_trus2	F_trus3	F_trus4	F_trus5	R_trus
+%	0	0	0	0	0	0	0
+F_trus1	0	0	0	0	0	0	1
+F_trus2	0	0	0	0	0	0	1
+F_trus3	0	0	0	0	0	0	1
+F_trus4	0	0	0	0	0	0	1
+F_trus5	0	0	0	0	0	0	1
+R_trus	0	0	0	0	0	0	0

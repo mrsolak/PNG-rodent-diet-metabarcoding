@@ -1,0 +1,28 @@
+#!/bin/bash
+#PBS -N skewer_novo3_18S_trim
+#PBS -l select=4:ncpus=20:mem=32gb:scratch_local=50gb
+#PBS -l walltime=01:00:00
+#PBS -m n
+
+
+#[2]SKEWER TRIMMING
+cd /storage/praha1/home/solakh/data/papuang/novogene/
+
+#make folder for demuplitpexed+trimmed data (those will be used in DADA)
+mkdir 18S_novo3_dem_trim
+
+#go to demutliplexed data from previous step which are input for trimming
+cd demultiplexed.18S.3
+
+#list of unique demutiplexed files (they have "assigned" in the name - i.e. that is how skewer label the demultiplexed files generated in previous step)
+SAMPLES_16S=$(ls -1 *fastq.gz | grep "_MKDL240008184-1A_22C2KLLT4_L8-assigned"|sed -r 's/-pair[12].fastq.gz//'|sort| uniq)
+
+#run trimming with skewer, the inline barcodes are denoted as Ns so anything can be there (but primer sequences alone should work as Skewer anyway trimms off everything to the 5' side from the hit)
+for i in $SAMPLES_16S; do /storage/praha1/home/solakh/softwares/skewer/skewer-0.2.2-linux-x86_64 -x NNNNGATYTGTCTGGTTVATTCCG -y NNNNCACAGACCTGTTATYGC  -m head -k 35 -d 0 -t 8 "$i"-pair1.fastq.gz "$i"-pair2.fastq.gz -o ../18S_novo3_dem_trim/"$i"; done >> ../18S_novo3_dem_trim/log.trimmed.head
+
+cd ../18S_novo3_dem_trim
+gzip *fastq
+
+
+#clean scratch after the end
+trap 'clean_scratch' TERM EXIT
