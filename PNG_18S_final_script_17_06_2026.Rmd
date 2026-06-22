@@ -4973,460 +4973,6 @@ ggsave(
 
 
 
-# =================== ANCESTRAL RECONSTRUCTION FOR RAO'S Q ===================== #
-library(ape)
-library(phyloseq)
-library(ggtree)
-library(dplyr)
-library(vegan)
-library(phytools)
-library(ggplot2)
-library(tidytree)
-
-# ===== LOAD DATA =====
-load("D:/Rwd/PNG_18S_rodent_filtered_ensembles_tree_NEWMT_W_clean.R")
-PS <- PNG_18S_rodent_filtered_ensembles_tree_NEWMT_W_clean
-
-# ===== LOAD RAO'S Q DATA =====
-alpha_div_final <- read.csv("D:/Rwd/alpha_glmm/tables/alpha_div_final_inter.csv")
-
-# Calculate mean Rao's Q per species
-species_raos_q <- alpha_div_final %>%
-  group_by(Species_consensus_ddRAD_mt_others) %>%
-  summarise(
-    mean_raos_q = mean(RaoQ_order, na.rm = TRUE),
-    median_raos_q = median(RaoQ_order, na.rm = TRUE),
-    sd_raos_q = sd(RaoQ_order, na.rm = TRUE),
-    n_samples = n()
-  ) %>%
-  ungroup() %>%
-  rename(Species = Species_consensus_ddRAD_mt_others)
-
-# Filter species with at least 5 samples
-species_raos_q_filtered <- species_raos_q %>%
-  filter(n_samples >= 5)
-
-cat("Species with >=5 samples:", nrow(species_raos_q_filtered), "\n")
-
-# ===== CREATE DIVISIONS DATA =====
-sample_data(PS)$Division <- sample_data(PS)$Hydromyini.Division.Rattini.Group
-
-sample_data(PS)$Division <- ifelse(
-  sample_data(PS)$Division %in% c("incertae sedis group", "R. rattus group "),
-  "Rattus invasive",
-  sample_data(PS)$Division
-)
-
-sample_data(PS)$Division <- ifelse(
-  sample_data(PS)$Division == "R. leucopus group (New Guinean group) ",
-  "Rattus endemic",
-  sample_data(PS)$Division
-)
-
-species_divisions <- sample_data(PS) %>%
-  as("data.frame") %>%
-  group_by(Species_consensus_ddRAD_mt_others) %>%
-  summarize(Division = first(Division)) %>%
-  ungroup() %>%
-  rename(Species = Species_consensus_ddRAD_mt_others)
-
-division_colors <- c(
-  "Coccymys division" = "#E60000",
-  "Hydromys division" = "#004D99",
-  "Mallomys division" = "#33CC33",
-  "Pogonomys division" = "#FFCC00",
-  "Rattus endemic" = "#660066",
-  "Rattus invasive" = "#FF6600",
-  "Uromys division" = "#00CCCC"
-)
-
-# ===== LOAD AND PREPARE TREE =====
-host_tree_raw <- ape::read.tree("D:/Rwd/abdomen/Joined_scaled_RH85.nwk")
-host_tree_raw$tip.label <- sub("_.*$", "", host_tree_raw$tip.label)
-
-ps_sample_data <- data.frame(sample_data(PS))
-ps_sample_data$SampleID <- rownames(ps_sample_data)
-
-tree_tip_species <- sapply(host_tree_raw$tip.label, function(tip) {
-  species <- ps_sample_data[ps_sample_data$SampleID == tip, "Species_consensus_ddRAD_mt_others"]
-  if(length(species) > 0) return(as.character(species[1]))
-  return(NA)
-})
-
-tips_to_keep <- host_tree_raw$tip.label[!is.na(tree_tip_species)]
-host_tree_matched <- ape::keep.tip(host_tree_raw, tips_to_keep)
-kept_species <- tree_tip_species[!is.na(tree_tip_species)]
-
-unique_species <- unique(kept_species)
-representative_tips <- sapply(unique_species, function(sp) {
-  tips_to_keep[kept_species == sp][1]
-})
-
-tree_niche <- ape::keep.tip(host_tree_matched, representative_tips)
-species_for_tips <- sapply(tree_niche$tip.label, function(tip) {
-  sp <- ps_sample_data[ps_sample_data$SampleID == tip, "Species_consensus_ddRAD_mt_others"]
-  if(length(sp) > 0) return(as.character(sp[1]))
-  return(NA)
-})
-tree_niche$tip.label <- species_for_tips
-
-if(!is.rooted(tree_niche)) {
-  tree_niche <- root(tree_niche, outgroup = tree_niche$tip.label[1], resolve.root = TRUE)
-}
-
-if(!is.binary(tree_niche)) {
-  tree_niche <- multi2di(tree_niche)
-}
-
-# ===== PREPARE RAO'S Q DATA (BEFORE MAKING TREE ULTRAMETRIC) =====
-raos_q_vector <- setNames(species_raos_q_filtered$mean_raos_q, 
-                          species_raos_q_filtered$Species)
-
-# CRITICAL: Find matching species and prune tree BEFORE chronos
-matching_species <- intersect(tree_niche$tip.label, names(raos_q_vector))
-raos_q_vector_filtered <- raos_q_vector[matching_species]
-
-# Prune the tree to matching species FIRST
-tree_niche_pruned <- ape::keep.tip(tree_niche, matching_species)
-
-cat("Species in final tree:", length(matching_species), "\n\n")
-
-# NOW make tree ultrametric and scale to 0-1
-tree_niche_pruned <- chronos(tree_niche_pruned, lambda = 0, model = "relaxed")
-tree_depth <- max(node.depth.edgelength(tree_niche_pruned))
-tree_niche_pruned$edge.length <- tree_niche_pruned$edge.length / tree_depth
-
-# ===== ANCESTRAL STATE RECONSTRUCTION =====
-# Use fastAnc to estimate ancestral states at internal nodes
-ancestral_states <- fastAnc(tree_niche_pruned, raos_q_vector_filtered, vars = TRUE, CI = TRUE)
-
-# Create dataframe with trait values at tips (current species)
-tip_data <- data.frame(
-  node = 1:length(tree_niche_pruned$tip.label),
-  label = tree_niche_pruned$tip.label,
-  trait = raos_q_vector_filtered[tree_niche_pruned$tip.label],
-  stringsAsFactors = FALSE
-)
-
-# Create dataframe with estimated trait values at internal nodes (ancestors)
-node_data <- data.frame(
-  node = (length(tree_niche_pruned$tip.label) + 1):(length(tree_niche_pruned$tip.label) + tree_niche_pruned$Nnode),
-  label = NA,
-  trait = ancestral_states$ace,
-  stringsAsFactors = FALSE
-)
-
-# Combine tip and node data
-all_trait_data <- rbind(tip_data, node_data)
-
-# ===== CALCULATE PAGEL'S LAMBDA =====
-lambda_result <- phylosig(tree_niche_pruned, 
-                          raos_q_vector_filtered,
-                          method = "lambda",
-                          test = TRUE)
-
-cat("\n===== Pagel's Lambda for Rao's Q (Niche Breadth) =====\n")
-cat("Lambda:", round(lambda_result$lambda, 3), "\n")
-cat("P-value:", round(lambda_result$P, 4), "\n\n")
-
-annotation_text <- paste0("λ = ", round(lambda_result$lambda, 2), 
-                          ", p = ", ifelse(lambda_result$P < 0.001, "<0.001", round(lambda_result$P, 3)))
-
-# ===== SCALE TREE TO BALANCE X/Y =====
-p_tmp <- ggtree(tree_niche_pruned, layout = "rectangular")
-tmp_df <- p_tmp$data
-x_range <- max(tmp_df$x) - min(tmp_df$x)
-y_range <- diff(range(tmp_df$y))
-scale_factor <- if (x_range > 0) y_range / x_range else 1
-
-tree_scaled <- tree_niche_pruned
-tree_scaled$edge.length <- tree_scaled$edge.length * scale_factor
-
-# ===== GET COORDINATES AND JOIN DATA =====
-p_base <- ggtree(tree_scaled, layout = "rectangular")
-tree_coords <- p_base$data
-
-# Join trait data with tree coordinates
-tree_data_full <- tree_coords %>%
-  left_join(all_trait_data, by = "node") %>%
-  left_join(species_divisions, by = c("label.x" = "Species"))
-
-# Clean up column names
-tree_data_full <- tree_data_full %>%
-  mutate(label = ifelse(is.na(label.x), label.y, label.x)) %>%
-  select(-label.x, -label.y)
-
-# ===== CREATE DIVISION BACKGROUNDS =====
-division_backgrounds <- tree_data_full %>%
-  filter(isTip) %>%
-  group_by(Division) %>%
-  summarize(
-    ymin = min(y) - 0.5,
-    ymax = max(y) + 0.5,
-    xmin = -0.05 * max(tree_coords$x),
-    xmax = max(tree_coords$x) * 1.7
-  )
-
-division_labels <- division_backgrounds %>%
-  mutate(
-    y_center = (ymin + ymax) / 2,
-    x_position = max(tree_coords$x) * 1.55
-  )
-
-# ===== CREATE THE PLOT WITH CONTINUOUS ANCESTRAL STATE COLORS =====
-p <- ggtree(tree_scaled, layout = "rectangular", size = 0.8) %<+% 
-  tree_data_full +
-  aes(color = trait) +
-  
-  # Add colored backgrounds for divisions
-  geom_rect(
-    data = division_backgrounds,
-    aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
-    fill = rep(division_colors[division_backgrounds$Division], length.out = nrow(division_backgrounds)),
-    alpha = 0.2,
-    inherit.aes = FALSE
-  ) +
-  
-  # Add division labels
-  geom_text(
-    data = division_labels,
-    aes(x = x_position, y = y_center, label = Division),
-    size = 3.5,
-    hjust = 0.3,
-    fontface = "bold",
-    inherit.aes = FALSE
-  ) +
-  
-  # Dashed root branch
-  geom_rootedge(rootedge = tree_scaled$edge.length[1] * 0.3, linetype = "dashed", size = 0.8, color = "black") +
-  
-  # CRITICAL: Enable continuous color mapping along branches
-  geom_tree(continuous = 'colour', size = 1.2) +
-  
-  # Color gradient - Viridis palette (good for continuous data)
-  scale_color_viridis_c(
-    name = "Rao's Q\n(Phylogenetic Diversity)",
-    option = "plasma",
-    na.value = "grey50",
-    guide = guide_colorbar(
-      barwidth = 10,
-      barheight = 0.8,
-      title.position = "top",
-      title.hjust = 0.5
-    )
-  ) +
-  
-  # Tip labels with sample counts
-  geom_tiplab(
-    aes(label = paste0(label, " (n=", 
-                       species_raos_q_filtered$n_samples[match(label, species_raos_q_filtered$Species)], 
-                       ")")),
-    size = 3.0,
-    offset = 0.02,
-    hjust = 0,
-    fontface = "italic",
-    color = "black"
-  ) +
-  
-  # Lambda annotation
-  annotate(
-    "text",
-    x = 0.02 * max(tree_coords$x),
-    y = max(tree_coords$y) * 0.98,
-    label = annotation_text,
-    size = 4,
-    hjust = 0,
-    vjust = 1,
-    fontface = "bold",
-    color = "black"
-  ) +
-  
-  xlim(0, max(tree_coords$x) * 1.8) +
-  coord_cartesian(clip = "off") +
-  
-  ggtitle("Phylogenetic Signal in Niche Breadth (Rao's Q)") +
-  
-  theme_tree2() +
-  
-  theme(
-    plot.title = element_text(hjust = 0.5, size = 15, face = "bold"),
-    legend.position = "bottom",
-    legend.direction = "horizontal",
-    legend.title = element_text(size = 10, face = "bold"),
-    legend.text = element_text(size = 9),
-    axis.title.x = element_text(size = 12),
-    plot.margin = margin(10, 100, 30, 10),
-    plot.background = element_rect(fill = "white", color = "white"),
-    panel.background = element_rect(fill = "white", color = "white")
-  ) +
-  
-  # X-axis with 0-1 scale
-  scale_x_continuous(
-    name = "Time (scaled)",
-    breaks = seq(0, 1, by = 0.2) * scale_factor,
-    labels = seq(0, 1, by = 0.2),
-    expand = expansion(mult = c(0.02, 0.20))
-  )
-
-print(p)
-
-ggsave(
-  filename = "D:/Rwd/to_the_mail/complete_plots/2-tree_plots/new_trees/phylogenetic_signal_raos_q.png",
-  plot     = p,
-  width    = 18,  # Increased width to accommodate division labels
-  height   = 9,
-  dpi      = 300,
-  bg       = "white",
-  limitsize = FALSE
-)
-
-
-# ================================================================= #
-# ===================== Rao vs distance to centroid =============== #
-# ================================================================= #
-library(dplyr)
-library(ggplot2)
-library(phyloseq) 
-library(ggrepel)  
-
-# Check for ggrepel and install if missing
-if (!requireNamespace("ggrepel", quietly = TRUE)) {
-  install.packages("ggrepel")
-  library(ggrepel)
-} else {
-  library(ggrepel)
-}
-
-# ===== 1. LOAD DATA & DEFINE FILE PATHS (User must ensure these paths are correct) =====
-load("D:/Rwd/PNG_18S_rodent_filtered_ensembles_tree_NEWMT_W_clean.R")
-PS <- PNG_18S_rodent_filtered_ensembles_tree_NEWMT_W_clean
-alpha_div_final <- read.csv("D:/Rwd/alpha_glmm/tables/alpha_div_final_inter.csv")
-
-# ===== 2. CALCULATE SPECIES MEANS & FILTER =====
-species_summary <- alpha_div_final %>%
-    group_by(Species_consensus_ddRAD_mt_others) %>%
-    summarise(
-        mean_raos_q = mean(RaoQ_order, na.rm = TRUE),
-        mean_mdc = mean(Distance_to_Centroid, na.rm = TRUE), 
-        n_samples = n()
-    ) %>%
-    ungroup() %>%
-    rename(Species = Species_consensus_ddRAD_mt_others)
-
-# Filter species with less than 5 samples
-species_summary_filtered <- species_summary %>%
-    filter(n_samples >= 5)
-
-cat("Species with >=5 samples:", nrow(species_summary_filtered), "\n")
-
-# ===== 3. DEFINE DIVISIONS AND COLORS =====
-sample_data(PS)$Division <- sample_data(PS)$Hydromyini.Division.Rattini.Group
-sample_data(PS)$Division <- ifelse(
-    sample_data(PS)$Division %in% c("incertae sedis group", "R. rattus group "),
-    "Rattus invasive",
-    sample_data(PS)$Division
-)
-sample_data(PS)$Division <- ifelse(
-    sample_data(PS)$Division == "R. leucopus group (New Guinean group) ",
-    "Rattus endemic",
-    sample_data(PS)$Division
-)
-
-species_divisions <- sample_data(PS) %>%
-    as("data.frame") %>%
-    group_by(Species_consensus_ddRAD_mt_others) %>%
-    summarize(Division = first(Division)) %>%
-    ungroup() %>%
-    rename(Species = Species_consensus_ddRAD_mt_others)
-
-# Darkened color for Pogonomys division from #FFCC00 to #CC9900
-division_colors <- c(
-    "Coccymys division" = "#E60000", 
-    "Hydromys division" = "#004D99", 
-    "Mallomys division" = "#33CC33",
-    "Pogonomys division" = "#CC9900", 
-    "Rattus endemic" = "#660066", 
-    "Rattus invasive" = "#FF6600",
-    "Uromys division" = "#00CCCC"
-)
-
-# ===== 4. FINAL DATA PREPARATION (Joining) =====
-plot_data <- species_summary_filtered %>%
-    inner_join(species_divisions, by = "Species")
-
-# ===== 5. CALCULATE QUADRANT THRESHOLDS (MEDIANS) =====
-x_median <- median(plot_data$mean_mdc, na.rm = TRUE)
-y_median <- median(plot_data$mean_raos_q, na.rm = TRUE)
-
-# ===== 6. PLOTTING (Quadrant Niche Analysis) =====
-
-p <- ggplot(plot_data, aes(x = mean_mdc, y = mean_raos_q, color = Division)) +
-    
-    # Add points
-    geom_point(alpha = 0.8, size = 3) +
-    
-    # === ADD QUADRANT LINES (Medians) ===
-    geom_vline(xintercept = x_median, linetype = "dashed", color = "gray50", linewidth = 0.8) +
-    geom_hline(yintercept = y_median, linetype = "dashed", color = "gray50", linewidth = 0.8) +
-    
-    # === ADD MEDIAN/CENTER ANNOTATION ===
-    annotate("text", 
-             x = x_median * 0.99, y = y_median * 0.99, 
-             label = paste0("Median (X, Y): (", round(x_median, 3), ", ", round(y_median, 3), ")"), 
-             hjust = 0.5, vjust = 1.2, size = 3.5, color = "gray20", fontface = "bold") +
-    
-    # === ADD SPECIES LABELS USING GGREPEL ===
-    geom_text_repel(
-        aes(label = Species), 
-        size = 3.0, 
-        fontface = "italic", 
-        max.overlaps = 50,
-        box.padding = 0.5, 
-        point.padding = 0.5,
-        segment.color = 'gray50'
-    ) +
-    
-    # Set custom colors for divisions
-    scale_color_manual(values = division_colors) +
-    
-    # === ADD QUADRANT LABELS ===
-    annotate("text", x = min(plot_data$mean_mdc), y = max(plot_data$mean_raos_q), 
-             label = "Population Generalists", hjust = 0, vjust = 1.5, size = 4, fontface = "bold") +
-    annotate("text", x = max(plot_data$mean_mdc), y = max(plot_data$mean_raos_q), 
-             label = "Opportunistics", hjust = 1, vjust = 1.5, size = 4, fontface = "bold") +
-    annotate("text", x = min(plot_data$mean_mdc), y = min(plot_data$mean_raos_q), 
-             label = "Specialists", hjust = 0, vjust = -1.3, size = 4, fontface = "bold") +
-    annotate("text", x = max(plot_data$mean_mdc), y = min(plot_data$mean_raos_q), 
-             label = "Individual Specialists", hjust = 1, vjust = -0.5, size = 4, fontface = "bold") +
-
-    labs(
-        x = "Mean Distance to Centroid (Interindividual Heterogeneity)",
-        y = "Mean Rao's Q (Phylogenetic Diversity / Taxonomic Breadth)",
-        color = "Host Division"
-    ) +
-    
-    # Expand axes slightly to make room for labels
-    expand_limits(
-      x = c(min(plot_data$mean_mdc) * 0.95, max(plot_data$mean_mdc) * 1.05),
-      y = c(min(plot_data$mean_raos_q) * 0.95, max(plot_data$mean_raos_q) * 1.05)
-    ) +
-    theme_minimal() +
-    theme(
-        plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
-        plot.subtitle = element_text(hjust = 0.5, size = 10),
-        axis.title = element_text(size = 11, face = "bold"),
-        legend.position = "bottom",
-        legend.box = "horizontal",
-        legend.title = element_text(size = 10, face = "bold")
-    )
-
-print(p)
-
-# Save the plot
-ggsave("D:/Rwd/to_the_mail/complete_plots/5-raw_alpha_values/RaoQ_vs_MDC_Quadrant_Niche_Analysis_Final.png", plot = p, width = 12, height = 9, units = "in", dpi = 300)
-
-#save it as 1200*900 manually
-
 
 
 # =================== MERGED SAMPLE DISTRIBUTION FIGURE ===================== #
@@ -7664,35 +7210,6 @@ cat("Done.\n")
 #                                         i.e. only species with >= 6 individuals)
 #   - individual_niche_table_phylo.csv  : individual-level metrics + sample metadata
 #                                         (n = 819 rows, 44 species total)
-#
-# Key columns used:
-#   species_niche_summary_phylo.csv:
-#     species, TNW, TNW_LC, TNW_UC, mean_WIC, Inverse_BIC, Spec_index,
-#     Division, n_individuals
-#
-#   individual_niche_table_phylo.csv:
-#     sample_ID, Species_consensus_ddRAD_mt_others, WIC, TNW, Spec_index,
-#     Inverse_BIC, Division, Alt, Loc, Tribe, spatial_niche, mean_mass,
-#     Metalokalita, Genus_consensus_ddRAD_mt_others, ...
-#
-# FILTERING LOGIC:
-#   species_niche_summary_phylo.csv contains only the 22 species with >= 6
-#   individuals. ALL analyses (ASR, TNW model, individual-level GLMMs) are
-#   restricted to these 22 species. The script reports which species are
-#   excluded BEFORE dropping any data, so you can review first.
-#
-# Steps:
-#   PART 1 — Ancestral State Reconstruction (ASR) for TNW, mean_WIC,
-#             Spec_index, Inverse_BIC using phytools::fastAnc
-#   PART 2 — Models:
-#             (a) AIC-based model selection for TNW (species-level, Gaussian)
-#                 global: TNW ~ spatial_niche + Tribe + mean_mass + Range_Type
-#                 max 3 fixed predictors via MuMIn::dredge()
-#             (b) Beta-GLMM for Spec_index / WIC/TNW (individual-level)
-#                 linear and non-linear altitude versions
-#             (c) Gamma-GLMM for WIC (individual-level)
-#   PART 3 — Publication-ready tables via sjPlot::tab_model(), saved as HTML
-#             individually and combined into one Word document
 ################################################################################
 
 
@@ -7723,7 +7240,7 @@ library(webshot2)      # renders HTML tables to PNG for Word export
 
 
 # ==============================================================================
-# 1. PATHS  — edit these to match your system
+# 1. PATHS  
 # ==============================================================================
 
 tables_dir     <- "D:/Rwd/papuang/PNG_18S_FINAL2/indicspecies/figures_tables"
@@ -7769,7 +7286,7 @@ print(excluded_species)
 
 
 # ==============================================================================
-# 3. DIVISION COLOURS  (consistent with indisp_postprocess_halil.txt)
+# 3. DIVISION COLOURS 
 # ==============================================================================
 
 division_colors <- c(
@@ -8098,7 +7615,7 @@ cat("NA in WIC_pos:", sum(is.na(data_ind$WIC_pos)), "\n")
 # ------------------------------------------------------------------------------
 # 7d. Species-level dataset
 #     Used for: Model A (TNW) and Model B (Spec_index)
-#     Base: species_summary (already filtered to >= 6 individuals)
+#     Base: species_summary (already filtered to >= 5 individuals)
 #     Add:  Range_Type, Tribe, spatial_niche, scaled mean_mass, altitude
 #           summaries derived from data_ind
 # ------------------------------------------------------------------------------
@@ -8267,7 +7784,6 @@ cat("Saved: TNW_Forest_Plot.png\n")
 
 # ==============================================================================
 # 9. MODEL B: lm() FOR Spec_index — species-level, logit-transformed
-#    REVISED: formula matched to TNW primary model
 #    Spec_index_logit ~ Range_Type + spatial_niche + Tribe
 # ==============================================================================
 
@@ -8942,12 +8458,6 @@ cat("Word document saved:", word_path, "\n")
  
 
 
-#continue from here: https://claude.ai/chat/b0e834e7-0b04-42d2-b919-3690bd5a8909
-#GLMM models 
-#The original script is here: desktop asr_glmm script
-#the notes regarding models in this email: search : "I suggest removing Alt_mean, Alt_range, and Range_Type"
-
-
 
 ```
 
@@ -9503,16 +9013,13 @@ write.csv(asv_abundance2,
 # Individual-level dietary co-occurrence analysis v8 (revised)
 #
 # Changes from v7:
-#   - Barplot Panel A: bracket p-value annotations for PI-requested contrasts
+#   - Barplot Panel A: bracket p-value annotations 
 #   - TWO barplot versions saved:
 #       Panel A1: mean +/- 95% CI  (precision of mean estimate)
 #       Panel A2: mean +/- SD      (spread of raw data)
 #   - Revised colour scheme: locality is the primary colour axis
 #       Same locality  = dark tones  (dark blue intra, dark red inter)
 #       Diff. locality = light tones (light blue intra, light orange inter)
-#     This makes the co-occurrence condition (dark bars) immediately visible
-#     and the PI-requested bracket comparisons intuitive (dark-to-dark,
-#     light-to-light)
 #
 # Unit of analysis: ALL individual pairs (intra + interspecific)
 # Co-occurrence: same Locality AND same Habitat_polished_Daniel.Fanda
