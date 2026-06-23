@@ -49,6 +49,7 @@ Scripts are numbered in the order the analyses appear in the manuscript.
     ├── SuppTable4_species_diet_order.csv     ← relative abundance per species at order level
     ├── SuppTable5_species_diet_family.csv    ← relative abundance per species at family level
     ├── SuppTable6_ASV_individual_abundance.csv ← raw ASV counts per individual sample
+    ├── PNG_2025-06-24.xlsx                     ← sample metadata with host variables
     └── SuppTable7_sample_metadata.csv          ← full metadata for all 819 samples (162 fields)
 ```
 
