@@ -1,9 +1,16 @@
 # Papua New Guinea Rodent 18S Dietary Metabarcoding
 
-Solak et al. — *Molecular Ecology* (submitted)
-
 **Dietary niche evolution in Papua New Guinea rodents assessed by 18S rRNA metabarcoding**  
 819 individuals · 44 species · 2 mountain transects (Mt. Wilhelm & Saruwaged Range) · From sea level to 3700 m asl.
+
+## Important note 
+`PNG_18S_final_script_17_06_2026.Rmd` is the original, complete analysis pipeline. Note that this script reflects an iterative analytical workflow; parameters and intermediate objects were revised repeatedly during analysis, so some sections are not guaranteed to run sequentially from start to finish without modification.
+
+To have a clean organisation, individual R scripts in `statistical_analyses/` were reorganised from the original Rmd using Claude Code, to provide a clearer, modular overview of each analysis. These scripts are intended to convey the analytical workflow, parameter choices, and overall logic of each analysis — they are not guaranteed to be directly executable as standalone, copy-paste-and-run scripts.
+
+**If there is any contradiction between an individual script and the Rmd file, the Rmd file should be treated as the authoritative record of the analysis as performed.** 
+
+Scripts are numbered in the order the analyses appear in the manuscript.
 
 ---
 
@@ -11,7 +18,7 @@ Solak et al. — *Molecular Ecology* (submitted)
 
 ```
 .
-├── PNG_18S_final_script_17_06_2026.Rmd       ← original analysis script (ground truth)
+├── PNG_18S_final_script_17_06_2026.Rmd       ← original analysis script 
 ├── README.md
 ├── bioinformatics_scripts/
 │   ├── CRABS_get_ref.qsub                    ← CRABS reference database construction
@@ -45,17 +52,7 @@ Solak et al. — *Molecular Ecology* (submitted)
     └── SuppTable7_sample_metadata.csv          ← full metadata for all 819 samples (162 fields)
 ```
 
----
 
-## Important note on script organisation
-
-The individual R scripts in `statistical_analyses/` were reorganised from the original monolithic `PNG_18S_final_script_17_06_2026.Rmd` using Claude Code (Anthropic).
-
-**If there is any contradiction between an individual script and the Rmd file, use the Rmd file as the correct version.** The Rmd is the authoritative record of the analysis as performed.
-
-Scripts are numbered in the order the analyses appear in the manuscript.
-
----
 
 ## Bioinformatics pipeline
 
