@@ -34,7 +34,7 @@ Scripts are numbered in the order the analyses appear in the manuscript.
 │   ├── 04_niche_partitioning.R               ← indicspecies WIC/TNW/BIC/SI + PCoA (Fig 4)
 │   ├── 05_asr_glmm.R                         ← ASR + Pagel's λ + GLMMs (Figs 8–9)
 │   ├── 06_maaslin2.R                         ← MaAsLin2 differential abundance (Figs 5–6)
-│   ├── 07_cooccurrence.R                     ← pairwise dietary co-occurrence LMMs (Fig 7)
+│   ├── 07_cooccurrence.R                     ← pairwise dietary co-occurrence LMMs (Fig 7), *script will be added*
 │   └── 08_barplots.R                         ← dietary barplots per ensemble (Supp Figs 1–7)
 ├── data/
 │   ├── phyloseqs/
